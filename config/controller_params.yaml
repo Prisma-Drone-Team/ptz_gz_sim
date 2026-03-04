@@ -1,0 +1,31 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    position_controller:
+      type: position_controllers/JointGroupPositionController
+    
+    velocity_controller:
+      type: velocity_controllers/JointGroupVelocityController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+position_controller:
+  ros__parameters:
+    joints:
+      - pan_joint
+      - tilt_joint
+
+velocity_controller:
+  ros__parameters:
+    joints:
+      - pan_joint
+      - tilt_joint
+
+joint_state_broadcaster:
+  ros__parameters:
+    frame_id: axis_camera_frame
+    joints:
+      - pan_joint
+      - tilt_joint

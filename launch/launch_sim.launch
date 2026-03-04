@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+<launch>
+
+    <!-- Spawn simulation world -->
+
+    <let name="world_file" value="$(find-pkg-share ptz_gz_sim)/worlds/leonardo_race.sdf" />
+
+    <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
+        <arg name="gz_args" value="$(var world_file) -r " />
+    </include>
+    
+    <!-- Load robot URDF and spawn robot in simulation using URDF description -->
+    
+    <node name="spawn_robot" pkg="ros_gz_sim" exec="create"
+        args="-name ptz_sim -topic /robot_description"/>
+
+    <node name="robot_state_publisher" pkg="robot_state_publisher" exec="robot_state_publisher">
+        <param name="robot_description" type="str" value="$(command 'xacro $(find-pkg-share ptz_manager)/urdf/axis_camera_gazebo.xacro')"/>
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- Launch ROS-GZ bridge -->
+
+    <node name="ros_gz_bridge" pkg="ros_gz_bridge" exec="parameter_bridge" 
+        args="/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock 
+                /ptz_image/image_raw@sensor_msgs/msg/Image[gz.msgs.Image
+                /ptz_image/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo
+                /ptz_zoom_cmd@std_msgs/msg/Float64]gz.msgs.Double">    
+        <!-- <param name="qos_overrides./scan.publisher.reliability" value="best_effort"/>
+        <param name="qos_overrides./scan.subscription.reliability" value="best_effort"/> -->
+    </node>
+
+
+    <!-- Launch controllers -->
+    <!-- Controller manager node is spawned by libgz_ros2_control plugin from gazebo tags in URDF -->
+
+    <!-- Spawn joint state broadcaster (publishes joint states) -->
+    <node name="spawn_joint_state_broadcaster" pkg="controller_manager" exec="spawner"
+        args="joint_state_broadcaster --controller-manager-timeout 10">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- Spawn position controller (controls pan_joint and tilt_joint) -->
+    <node name="spawn_position_controller" pkg="controller_manager" exec="spawner"
+        args="position_controller --controller-manager-timeout 10">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- Spawn velocity controller (controls pan_joint and tilt_joint) -->
+    <node name="spawn_velocity_controller" pkg="controller_manager" exec="spawner"
+        args="velocity_controller --controller-manager-timeout 10">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+    <!-- axis camera only publish compressed image, launch republish node to publish also raw one -->
+    <!-- <node name="image_republisher" pkg="image_transport" exec="republish"  output="screen" args="compressed raw">
+        <remap from="in/compressed" to="/image_raw/compressed"/>
+        <remap from="out" to="/image_raw"/>
+    </node> -->
+
+    <node name="fake_axis_camera" pkg="ptz_gz_sim" exec="fake_axis_camera_node">
+        <param name="use_sim_time" value="true"/>
+    </node>
+    
+    <!-- <node name="ptz_manager" pkg="ptz_manager" exec="ptz_manager">
+        <param from="$(find-pkg-share ptz_manager)/param/param.yaml" />
+        <param name="use_sim_time" value="true"/>
+    </node> -->
+
+    <node name="rviz2" pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share ptz_manager)/rviz/rviz.rviz">
+        <param name="use_sim_time" value="true"/>
+    </node>
+
+
+    <!-- <node name="zbar_scanner" pkg="zbar_ros" exec="barcode_reader" args="">
+        <remap from="/image" to="/image_raw"/>
+    </node> -->
+
+    <!-- <node name="roi_calculation_yolo" pkg="roi_calculation_yolo" exec="roi_calculation_yolo" args="">
+        
+    </node> -->
+    
+    
+</launch>

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>ptz_gz_sim</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="pasqualemerone@yahoo.it">root</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>xacro</depend>
+  <depend>urdf</depend>
+  <depend>ignition-common4</depend>
+  <depend>ignition-rendering6</depend>
+  <depend>ignition-gazebo6</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <gazebo_ros gazebo_model_path="${prefix}/models"/>
+    <!-- Tell gazebo / ignorable where our plugin library lives.  we
+         install it directly under <prefix>/lib so this path is
+         sufficient for both classic gazebo and ign-gazebo. -->
+    <gazebo_ros gazebo_plugin_path="${prefix}/lib"/>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
