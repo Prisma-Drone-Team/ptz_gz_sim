@@ -34,6 +34,7 @@ private:
     rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr switch_controller_srv_;
     
     // Parameters
+    const float dt = 1/20.0; 
     const float PAN_SPEED_ = 10.0f;      // degrees/command
     const float TILT_SPEED_ = 10.0f;     // degrees/command
     const float ZOOM_SPEED_ = 0.1f;      // per command
@@ -127,7 +128,11 @@ void FakeAxisCamera::cmd_velocity_cb(const ptz_action_server_msgs::msg::Ptz::Con
 
     vel_cmd_pub_->publish(send_msg_vel);
 
-    RCLCPP_INFO(this->get_logger(), "sent VEL msg: %f %f", send_msg_vel.data[0], send_msg_vel.data[1]);
+    std_msgs::msg::Float64 zoom_msg;
+    zoom_msg.data = current_zoom_ + msg->zoom * dt;
+    ptz_zoom_cmd_pub_->publish(zoom_msg);
+
+    RCLCPP_INFO(this->get_logger(), "sent VEL msg: %f %f %f", send_msg_vel.data[0], send_msg_vel.data[1], zoom_msg.data);
 
 }
 
@@ -136,7 +141,7 @@ void FakeAxisCamera::joint_state_cb(const sensor_msgs::msg::JointState::ConstSha
 {
     auto curr_pan = msg->position[0];
     auto curr_tilt = msg->position[1];
-    auto curr_zoom = msg->position[3];
+    auto curr_zoom = current_zoom_;
     
     auto send_msg = ptz_action_server_msgs::msg::PtzState();
     send_msg.mode = mode_;
@@ -148,7 +153,7 @@ void FakeAxisCamera::joint_state_cb(const sensor_msgs::msg::JointState::ConstSha
 
 void FakeAxisCamera::ptz_zoom_fb_cb(const std_msgs::msg::Float64::ConstSharedPtr msg)
 {
-
+    current_zoom_ = msg->data;
 }
 
 // Action server callbacks
@@ -194,7 +199,11 @@ void FakeAxisCamera::handle_accepted(
 
     pos_cmd_pub_->publish(send_msg_pos);
 
-    RCLCPP_INFO(this->get_logger(), "sent POS msg: %f %f", send_msg_pos.data[0], send_msg_pos.data[1]);
+    std_msgs::msg::Float64 zoom_msg;
+    zoom_msg.data = goal_handle->get_goal()->ptz.zoom;
+    ptz_zoom_cmd_pub_->publish(zoom_msg);
+
+    RCLCPP_INFO(this->get_logger(), "sent POS msg: %f %f %f", send_msg_pos.data[0], send_msg_pos.data[1], zoom_msg.data);
 
     auto res_msg = std::make_shared<ptz_action_server_msgs::action::PtzMove_Result>();
     res_msg->success = true;

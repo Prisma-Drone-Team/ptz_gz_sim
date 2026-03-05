@@ -121,6 +121,12 @@ class CameraZoomPlugin::Impl
   /// \brief Name of the topic to subscribe to zoom commands.
   public: std::string zoomTopic;
 
+  /// \brief Name of the topic to publish zoom feedback.
+  public: std::string zoomFbTopic;
+
+  /// \brief publisher of the zoom feedback.
+  public: transport::Node::Publisher zoomFbPub;
+
   /// \brief Flag to mark if zoom command has changed.
   public: std::atomic<bool> zoomChanged{false};
 
@@ -361,6 +367,7 @@ void CameraZoomPlugin::Configure(
 
   // Configure zoom command topic.
   {
+    ignwarn << "CCIOPATATU\n";
     std::vector<std::string> topics;
     if (_sdf->HasElement("topic"))
     {
@@ -375,13 +382,33 @@ void CameraZoomPlugin::Configure(
     this->impl->zoomTopic = validTopic(topics);
   }
 
+  // configure zoom feedback topic
+  std::vector<std::string> fb_topics;
+    if (_sdf->HasElement("fb_topic"))
+    {
+      fb_topics.push_back(_sdf->Get<std::string>("fb_topic"));
+    }
+    auto parentModelName = this->impl->parentModel.Name(_ecm);
+    /// \todo(srmainwaring) replace with `gz::sim::Sensor` when available.
+    // auto sensorName = this->impl->cameraSensor.Name(_ecm).value();
+    auto sensorName = this->impl->SensorName(_ecm).value();
+    fb_topics.push_back("/model/" + parentModelName +
+        "/sensor/" + sensorName + "/zoom/fb_zoom");
+    this->impl->zoomFbTopic = validTopic(fb_topics);
+
   // Subscriptions.
   this->impl->node.Subscribe(
       this->impl->zoomTopic,
       &CameraZoomPlugin::Impl::OnZoom, this->impl.get());
 
-  igndbg << "CameraZoomPlugin subscribing to messages on "
+  ignwarn << "CameraZoomPlugin subscribing to messages on "
          << "[" << this->impl->zoomTopic << "]\n";
+
+  // Publishers
+  this->impl->zoomFbPub = this->impl->node.Advertise<msgs::Double>(this->impl->zoomFbTopic);
+
+  ignwarn << "CameraZoomPlugin publishing messages on "
+         << "[" << this->impl->zoomFbTopic << "]\n";
 
   // Connections
   // use PostRender event in Ignition; original code used RenderTeardown
@@ -494,6 +521,12 @@ void CameraZoomPlugin::PostUpdate(
     const UpdateInfo &/*_info*/,
     const EntityComponentManager &_ecm)
 {
+  // publish zoom feedback
+  gz::msgs::Double msg;
+  msg.set_data(this->impl->curZoom);
+  this->impl->zoomFbPub.Publish(msg);
+
+  
   if (!this->impl->cameraName.empty())
     return;
 

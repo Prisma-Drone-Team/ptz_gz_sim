@@ -164,10 +164,10 @@
     <gazebo reference="axis_camera_optical">
     <sensor name="ptz_camera" type="camera">
       <pose>0 0 0 0 0 0</pose>
-      <topic>ptz_image/image_raw</topic>
+      <topic>/image_raw</topic>
       <camera>
         <horizontal_fov>1.0786</horizontal_fov>
-        <camera_info_topic>ptz_image/camera_info</camera_info_topic>
+        <camera_info_topic>/image_raw/camera_info</camera_info_topic>
         <optical_frame_id>axis_camera_optical</optical_frame_id>
         <image>
           <width>1920</width>
@@ -188,6 +188,7 @@
         <max_zoom>125.0</max_zoom>
         <slew_rate>0.425</slew_rate>
         <topic>ptz_zoom_cmd</topic>
+        <fb_topic>ptz_zoom_fb</fb_topic>
       </plugin>
       
     </sensor>

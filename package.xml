@@ -24,7 +24,7 @@
     <!-- Tell gazebo / ignorable where our plugin library lives.  we
          install it directly under <prefix>/lib so this path is
          sufficient for both classic gazebo and ign-gazebo. -->
-    <gazebo_ros gazebo_plugin_path="${prefix}/lib"/>
+    <gazebo_ros plugin_path="${prefix}/plugins"/>
     <build_type>ament_cmake</build_type>
   </export>
 </package>

@@ -4,9 +4,10 @@
     <!-- Spawn simulation world -->
 
     <let name="world_file" value="$(find-pkg-share ptz_gz_sim)/worlds/leonardo_race.sdf" />
+    <let name="gz_plugin_path" value="$(find-pkg-share ptz_gz_sim)/../../lib/ptz_gz_sim"/>
 
     <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
-        <arg name="gz_args" value="$(var world_file) -r " />
+        <arg name="gz_args" value="$(var world_file) -r -v" />
     </include>
     
     <!-- Load robot URDF and spawn robot in simulation using URDF description -->
@@ -15,7 +16,7 @@
         args="-name ptz_sim -topic /robot_description"/>
 
     <node name="robot_state_publisher" pkg="robot_state_publisher" exec="robot_state_publisher">
-        <param name="robot_description" type="str" value="$(command 'xacro $(find-pkg-share ptz_manager)/urdf/axis_camera_gazebo.xacro')"/>
+        <param name="robot_description" type="str" value="$(command 'xacro $(find-pkg-share ptz_gz_sim)/urdf/axis_camera_gazebo.xacro')"/>
         <param name="use_sim_time" value="true"/>
     </node>
 
@@ -23,9 +24,10 @@
 
     <node name="ros_gz_bridge" pkg="ros_gz_bridge" exec="parameter_bridge" 
         args="/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock 
-                /ptz_image/image_raw@sensor_msgs/msg/Image[gz.msgs.Image
-                /ptz_image/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo
-                /ptz_zoom_cmd@std_msgs/msg/Float64]gz.msgs.Double">    
+                /image_raw@sensor_msgs/msg/Image[gz.msgs.Image
+                /image_raw/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo
+                /ptz_zoom_cmd@std_msgs/msg/Float64]gz.msgs.Double
+                /ptz_zoom_fb@std_msgs/msg/Float64[gz.msgs.Double">    
         <!-- <param name="qos_overrides./scan.publisher.reliability" value="best_effort"/>
         <param name="qos_overrides./scan.subscription.reliability" value="best_effort"/> -->
     </node>
@@ -52,33 +54,35 @@
         <param name="use_sim_time" value="true"/>
     </node>
 
-    <!-- axis camera only publish compressed image, launch republish node to publish also raw one -->
-    <!-- <node name="image_republisher" pkg="image_transport" exec="republish"  output="screen" args="compressed raw">
-        <remap from="in/compressed" to="/image_raw/compressed"/>
-        <remap from="out" to="/image_raw"/>
-    </node> -->
+    <!-- gazebo camera only publish raw image, launch republish node to publish also compressed one -->
+    <node name="image_republisher" pkg="image_transport" exec="republish"  output="screen" args="raw compressed">
+        <param name="use_sim_time" value="true"/>
+        <remap from="in" to="/image_raw"/>
+        <remap from="out/compressed" to="/image_raw/compressed"/>
+    </node>
 
     <node name="fake_axis_camera" pkg="ptz_gz_sim" exec="fake_axis_camera_node">
         <param name="use_sim_time" value="true"/>
     </node>
     
-    <!-- <node name="ptz_manager" pkg="ptz_manager" exec="ptz_manager">
+    <node name="ptz_manager" pkg="ptz_manager" exec="ptz_manager">
         <param from="$(find-pkg-share ptz_manager)/param/param.yaml" />
         <param name="use_sim_time" value="true"/>
-    </node> -->
+    </node>
 
     <node name="rviz2" pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share ptz_manager)/rviz/rviz.rviz">
         <param name="use_sim_time" value="true"/>
     </node>
 
 
-    <!-- <node name="zbar_scanner" pkg="zbar_ros" exec="barcode_reader" args="">
+    <node name="zbar_scanner" pkg="zbar_ros" exec="barcode_reader" args="">
+        <param name="use_sim_time" value="true"/>
         <remap from="/image" to="/image_raw"/>
-    </node> -->
+    </node>
 
-    <!-- <node name="roi_calculation_yolo" pkg="roi_calculation_yolo" exec="roi_calculation_yolo" args="">
-        
-    </node> -->
+    <node name="roi_calculation_yolo" pkg="roi_calculation_yolo" exec="roi_calculation_yolo" args="">
+        <param name="use_sim_time" value="true"/>
+    </node>
     
     
 </launch>
