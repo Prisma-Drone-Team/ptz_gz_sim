@@ -110,7 +110,7 @@
 
     <include>
       <name>qrcode_34</name>
-      <pose>2.77 0.5 1.0 1.57 -1.57 0</pose>
+      <pose>2.77 -0.5 1.0 1.57 0.0 -1.57</pose>
       <uri>model://leo_race_field/qrcode_34</uri>
     </include>
     
