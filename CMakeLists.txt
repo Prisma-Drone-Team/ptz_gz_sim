@@ -37,6 +37,10 @@ find_package(ptz_action_server_msgs)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs)
 find_package(controller_manager_msgs)
+find_package(controller_manager REQUIRED)
+find_package(joint_state_broadcaster REQUIRED)
+find_package(position_controllers REQUIRED)
+find_package(velocity_controllers REQUIRED)
 
 add_library(CameraZoomPlugin
   SHARED
@@ -69,6 +73,11 @@ ament_target_dependencies(fake_axis_camera_node
 
 install(TARGETS
   fake_axis_camera_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/test_ptz_controllers.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

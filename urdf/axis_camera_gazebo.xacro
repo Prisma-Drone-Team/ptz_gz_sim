@@ -137,29 +137,9 @@
         <origin xyz="0.0 0.0 0.0" rpy="3.1415 0.0 0.0"/>
     </joint>
 
-    <ros2_control name="GazeboSimSystem" type="system">
-    <hardware>
-        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
-    </hardware>
-    <joint name="pan_joint">
-      <command_interface name="position" />
-      <command_interface name="velocity" />
-      <state_interface name="position"/>
-    </joint>
-    <joint name="tilt_joint">
-      <command_interface name="position" />
-      <command_interface name="velocity" />
-      <state_interface name="position"/>
-    </joint>
-    </ros2_control>
-    
-    <gazebo>
-      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
-        <robot_param>robot_description</robot_param>
-        <robot_param_node>robot_state_publisher</robot_param_node>
-        <parameters>$(find ptz_gz_sim)/config/controller_params.yaml</parameters>
-      </plugin>
-    </gazebo>
+    <!-- Import ros2_control configuration -->
+    <xacro:include filename="ptz.ros2_control.xacro" />
+    <xacro:ptz_ros2_control name="MockSystem" />
 
     <gazebo reference="axis_camera_optical">
     <sensor name="ptz_camera" type="camera">
@@ -183,13 +163,15 @@
       <always_on>1</always_on>
       <update_rate>30</update_rate>
       
-      <!-- CameraZoomPlugin Configuration -->
-      <plugin name="gz::sim::systems::CameraZoomPlugin" filename="libCameraZoomPlugin.so">
+      <!-- CameraZoomPlugin Configuration - COMMENTED OUT FOR NOW -->
+      <!-- 
+      <plugin name="CameraZoomPlugin" filename="CameraZoomPlugin">
         <max_zoom>125.0</max_zoom>
         <slew_rate>0.425</slew_rate>
         <topic>ptz_zoom_cmd</topic>
         <fb_topic>ptz_zoom_fb</fb_topic>
       </plugin>
+      -->
       
     </sensor>
   </gazebo>
