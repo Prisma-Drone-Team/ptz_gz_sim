@@ -8,6 +8,7 @@
 
     <include file="$(find-pkg-share ros_gz_sim)/launch/gz_sim.launch.py">
         <arg name="gz_args" value="$(var world_file) -r -v" />
+        <arg name="gz_version" value="7" />
     </include>
     
     <!-- Load robot URDF and spawn robot in simulation using URDF description -->
@@ -20,7 +21,7 @@
         <param name="use_sim_time" value="true"/>
     </node>
 
-    <!-- Launch ROS-GZ bridge -->
+    <!-- Launch ROS-Gazebo bridge for Gazebo Garden -->
 
     <node name="ros_gz_bridge" pkg="ros_gz_bridge" exec="parameter_bridge" 
         args="/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock 
@@ -35,6 +36,10 @@
 
     <!-- Launch controllers -->
     <!-- Controller manager node is spawned by libgz_ros2_control plugin from gazebo tags in URDF -->
+    <!-- <node name="controller_manager" pkg="controller_manager" exec="ros2_control_node">
+        <param name="use_sim_time" value="true"/>
+        <param from="$(find-pkg-share ptz_gz_sim)/config/controller_params.yaml"/>
+    </node> -->
 
     <!-- Spawn joint state broadcaster (publishes joint states) -->
     <node name="spawn_joint_state_broadcaster" pkg="controller_manager" exec="spawner"
@@ -54,35 +59,35 @@
         <param name="use_sim_time" value="true"/>
     </node>
 
-    <!-- gazebo camera only publish raw image, launch republish node to publish also compressed one -->
-    <node name="image_republisher" pkg="image_transport" exec="republish"  output="screen" args="raw compressed">
+    <!-- Gazebo camera publishes raw image; launch republish node to also publish compressed version -->
+    <!-- <node name="image_republisher" pkg="image_transport" exec="republish"  output="screen" args="raw compressed">
         <param name="use_sim_time" value="true"/>
         <remap from="in" to="/image_raw"/>
         <remap from="out/compressed" to="/image_raw/compressed"/>
-    </node>
+    </node> -->
 
-    <node name="fake_axis_camera" pkg="ptz_gz_sim" exec="fake_axis_camera_node">
+    <!-- <node name="fake_axis_camera" pkg="ptz_gz_sim" exec="fake_axis_camera_node">
         <param name="use_sim_time" value="true"/>
-    </node>
+    </node> -->
     
-    <node name="ptz_manager" pkg="ptz_manager" exec="ptz_manager">
+    <!-- <node name="ptz_manager" pkg="ptz_manager" exec="ptz_manager">
         <param from="$(find-pkg-share ptz_manager)/param/param.yaml" />
         <param name="use_sim_time" value="true"/>
-    </node>
+    </node> -->
 
     <node name="rviz2" pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share ptz_manager)/rviz/rviz.rviz">
         <param name="use_sim_time" value="true"/>
     </node>
 
 
-    <node name="zbar_scanner" pkg="zbar_ros" exec="barcode_reader" args="">
+    <!-- <node name="zbar_scanner" pkg="zbar_ros" exec="barcode_reader" args="">
         <param name="use_sim_time" value="true"/>
         <remap from="/image" to="/image_raw"/>
-    </node>
+    </node> -->
 
-    <node name="roi_calculation_yolo" pkg="roi_calculation_yolo" exec="roi_calculation_yolo" args="">
+    <!-- <node name="roi_calculation_yolo" pkg="roi_calculation_yolo" exec="roi_calculation_yolo" args="">
         <param name="use_sim_time" value="true"/>
-    </node>
+    </node> -->
     
     
 </launch>

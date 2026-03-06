@@ -33,6 +33,7 @@
 #include <gz/math/Quaternion.hh>
 
 #include <gz/plugin/Register.hh>
+#include <gz/plugin/Loader.hh>
 
 #include <gz/rendering/Camera.hh>
 #include <gz/rendering/RenderEngine.hh>
@@ -197,7 +198,7 @@ class CameraZoomPlugin::Impl
 //////////////////////////////////////////////////
 void CameraZoomPlugin::Impl::OnZoom(const msgs::Double &_msg)
 {
-  ignwarn << "ZOOM COMMAND RECEIVED: " << std::to_string(_msg.data()) << "\n";
+  gzwarn << "ZOOM COMMAND RECEIVED: " << std::to_string(_msg.data()) << "\n";
   this->zoomCommand = _msg.data();
   this->zoomChanged = true;
 }
@@ -222,7 +223,7 @@ void CameraZoomPlugin::Impl::InitialiseCamera()
       !this->scene->IsInitialized() ||
       this->scene->SensorCount() == 0)
   {
-    ignwarn << "No scene or camera sensors available.\n";
+    gzwarn << "No scene or camera sensors available.\n";
     return;
   }
 
@@ -232,14 +233,14 @@ void CameraZoomPlugin::Impl::InitialiseCamera()
     auto sensor = this->scene->SensorByName(this->cameraName);
     if (!sensor)
     {
-      ignerr << "Unable to find sensor: [" << this->cameraName << "]."
+      gzerr << "Unable to find sensor: [" << this->cameraName << "]."
             << std::endl;
       return;
     }
     this->camera = std::dynamic_pointer_cast<rendering::Camera>(sensor);
     if (!this->camera)
     {
-      ignerr << "[" << this->cameraName << "] is not a camera."
+      gzerr << "[" << this->cameraName << "] is not a camera."
             << std::endl;
       return;
     }
@@ -251,7 +252,7 @@ void CameraZoomPlugin::Impl::OnStop()
 {
   // Called after each render cycle; clear cached pointers if scene has
   // been torn down or when plugin is deactivated.
-  //igndbg << "CameraZoomPlugin post-render callback.\n";
+  //gzdbg << "CameraZoomPlugin post-render callback.\n";
 
   this->camera.reset();
   this->scene.reset();
@@ -305,7 +306,7 @@ void CameraZoomPlugin::Configure(
   this->impl->cameraSensorEntity = _entity;
   if (!this->impl->SensorValid(_ecm))
   {
-    ignerr << "CameraZoomPlugin must be attached to a camera sensor. "
+    gzerr << "CameraZoomPlugin must be attached to a camera sensor. "
              "Failed to initialize.\n";
     return;
   }
@@ -315,12 +316,12 @@ void CameraZoomPlugin::Configure(
   // if (auto maybeName = this->impl->cameraSensor.Name(_ecm))
   if (auto maybeName = this->impl->SensorName(_ecm))
   {
-    igndbg << "CameraZoomPlugin attached to sensor ["
+    gzdbg << "CameraZoomPlugin attached to sensor ["
           << maybeName.value() << "].\n";
   }
   else
   {
-    ignerr << "Camera sensor has invalid name.\n";
+    gzerr << "Camera sensor has invalid name.\n";
     return;
   }
 
@@ -340,7 +341,7 @@ void CameraZoomPlugin::Configure(
   }
   if (!this->impl->parentModel.Valid(_ecm))
   {
-    ignerr << "CameraZoomPlugin - parent model not found. "
+    gzerr << "CameraZoomPlugin - parent model not found. "
              "Failed to initialize.\n";
     return;
   }
@@ -350,7 +351,7 @@ void CameraZoomPlugin::Configure(
       _ecm.EntityByComponents(components::World()));
   if (!this->impl->world.Valid(_ecm))
   {
-    ignerr << "CameraZoomPlugin - world not found. "
+    gzerr << "CameraZoomPlugin - world not found. "
              "Failed to initialize.\n";
     return;
   }
@@ -367,7 +368,7 @@ void CameraZoomPlugin::Configure(
 
   // Configure zoom command topic.
   {
-    ignwarn << "CCIOPATATU\n";
+    gzwarn << "CCIOPATATU\n";
     std::vector<std::string> topics;
     if (_sdf->HasElement("topic"))
     {
@@ -401,13 +402,13 @@ void CameraZoomPlugin::Configure(
       this->impl->zoomTopic,
       &CameraZoomPlugin::Impl::OnZoom, this->impl.get());
 
-  ignwarn << "CameraZoomPlugin subscribing to messages on "
+  gzwarn << "CameraZoomPlugin subscribing to messages on "
          << "[" << this->impl->zoomTopic << "]\n";
 
   // Publishers
   this->impl->zoomFbPub = this->impl->node.Advertise<msgs::Double>(this->impl->zoomFbTopic);
 
-  ignwarn << "CameraZoomPlugin publishing messages on "
+  gzwarn << "CameraZoomPlugin publishing messages on "
          << "[" << this->impl->zoomFbTopic << "]\n";
 
   // Connections
@@ -425,7 +426,7 @@ void CameraZoomPlugin::PreUpdate(
     const UpdateInfo &_info,
     EntityComponentManager &_ecm)
 {
-  IGN_PROFILE("CameraZoomPlugin::PreUpdate");
+  GZ_PROFILE("CameraZoomPlugin::PreUpdate");
   
   if (!this->impl->isValidConfig)
   return;
@@ -445,7 +446,7 @@ void CameraZoomPlugin::PreUpdate(
     return;
   if (this->impl->zoomChanged)
   {
-    ignwarn<< "ZOOM COMMAND CHANGED\n";
+    gzwarn<< "ZOOM COMMAND CHANGED\n";
     // Only calculate goal once each time zoom is changed.
     const auto requestedZoomCmd = this->impl->zoomCommand.load();
     const auto clampedZoomCmd = std::clamp(requestedZoomCmd,
@@ -453,7 +454,7 @@ void CameraZoomPlugin::PreUpdate(
     if (std::abs(requestedZoomCmd - clampedZoomCmd) >
       std::numeric_limits<double>::epsilon())
     {
-      ignwarn << "Requested zoom command of " << requestedZoomCmd
+      gzwarn << "Requested zoom command of " << requestedZoomCmd
         << " has been clamped to " << clampedZoomCmd << ".\n";
     }
     this->impl->goalHfov = this->impl->refHfov / clampedZoomCmd;
@@ -536,7 +537,7 @@ void CameraZoomPlugin::PostUpdate(
   this->impl->cameraName =
       removeParentScope(scopedName(cameraEntity, _ecm, "::", false), "::");
 
-  igndbg << "Camera name: [" << this->impl->cameraName << "].\n";
+  gzdbg << "Camera name: [" << this->impl->cameraName << "].\n";
 }
 
 //////////////////////////////////////////////////
@@ -546,13 +547,13 @@ void CameraZoomPlugin::PostUpdate(
 }  // namespace sim
 }  // namespace gz
 
-IGNITION_ADD_PLUGIN(
+GZ_ADD_PLUGIN(
     gz::sim::systems::CameraZoomPlugin,
     gz::sim::System,
     gz::sim::systems::CameraZoomPlugin::ISystemConfigure,
     gz::sim::systems::CameraZoomPlugin::ISystemPreUpdate,
     gz::sim::systems::CameraZoomPlugin::ISystemPostUpdate)
 
-IGNITION_ADD_PLUGIN_ALIAS(
+GZ_ADD_PLUGIN_ALIAS(
     gz::sim::systems::CameraZoomPlugin,
     "CameraZoomPlugin")

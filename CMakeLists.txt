@@ -6,15 +6,22 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 # --------------------------------------------------------------------------- #
-# Find gz-sim and dependencies.
+# Find gz-sim and dependencies for Gazebo Garden.
 
-
-# Garden
 message(STATUS "Compiling against Gazebo Garden")
-find_package(ignition-cmake2 REQUIRED)
-find_package(ignition-common4 REQUIRED)
-find_package(ignition-rendering6 REQUIRED)
-find_package(ignition-gazebo6 REQUIRED)
+find_package(gz-cmake3 REQUIRED)
+set(GZ_CMAKE_VER ${gz-cmake3_VERSION_MAJOR})
+
+gz_find_package(gz-common5 REQUIRED)
+set(GZ_COMMON_VER ${gz-common5_VERSION_MAJOR})
+
+gz_find_package(gz-plugin2 REQUIRED)
+
+gz_find_package(gz-rendering7 REQUIRED)
+set(GZ_RENDERING_VER ${gz-rendering7_VERSION_MAJOR})
+
+gz_find_package(gz-sim7 REQUIRED)
+set(GZ_SIM_VER ${gz-sim7_VERSION_MAJOR})
 
 # --------------------------------------------------------------------------- #
 
@@ -26,7 +33,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(xacro REQUIRED)
 find_package(urdf REQUIRED)
-find_package(ptz_action_server_msgs REQUIRED)
+find_package(ptz_action_server_msgs)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs)
 find_package(controller_manager_msgs)
@@ -40,9 +47,10 @@ target_include_directories(CameraZoomPlugin PRIVATE
 )
 
   target_link_libraries(CameraZoomPlugin PRIVATE
-    ignition-common4::ignition-common4
-    ignition-rendering6::ignition-rendering6
-    ignition-gazebo6::ignition-gazebo6
+    gz-common5::gz-common5
+    gz-plugin2::gz-plugin2
+    gz-rendering7::gz-rendering7
+    gz-sim7::gz-sim7
   )
 
 # Build fake_axis_camera node

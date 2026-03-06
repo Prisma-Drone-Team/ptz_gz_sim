@@ -12,9 +12,11 @@
   <depend>rclcpp</depend>
   <depend>xacro</depend>
   <depend>urdf</depend>
-  <depend>ignition-common4</depend>
-  <depend>ignition-rendering6</depend>
-  <depend>ignition-gazebo6</depend>
+  <depend>gz-common5</depend>
+  <depend>gz-plugin2</depend>
+  <depend>gz-rendering7</depend>
+  <depend>gz-sim7</depend>
+  <depend>ptz_action_server_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

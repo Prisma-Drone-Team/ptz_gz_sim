@@ -154,7 +154,7 @@
     </ros2_control>
     
     <gazebo>
-      <plugin filename="libgz_ros2_control-system.so" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
         <robot_param>robot_description</robot_param>
         <robot_param_node>robot_state_publisher</robot_param_node>
         <parameters>$(find ptz_gz_sim)/config/controller_params.yaml</parameters>
@@ -184,7 +184,7 @@
       <update_rate>30</update_rate>
       
       <!-- CameraZoomPlugin Configuration -->
-      <plugin name="CameraZoomPlugin" filename="libCameraZoomPlugin.so">
+      <plugin name="gz::sim::systems::CameraZoomPlugin" filename="libCameraZoomPlugin.so">
         <max_zoom>125.0</max_zoom>
         <slew_rate>0.425</slew_rate>
         <topic>ptz_zoom_cmd</topic>
