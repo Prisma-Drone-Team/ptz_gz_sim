@@ -514,6 +514,9 @@ void CameraZoomPlugin::PreUpdate(
 
   // Update rendering camera.
   this->impl->camera->SetHFOV(newHfov);
+
+  // update current zoom
+  this->impl->curZoom = this->impl->refHfov / oldHfov;
 }
 
 //////////////////////////////////////////////////

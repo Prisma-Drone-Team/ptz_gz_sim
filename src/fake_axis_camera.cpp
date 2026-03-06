@@ -129,7 +129,8 @@ void FakeAxisCamera::cmd_velocity_cb(const ptz_action_server_msgs::msg::Ptz::Con
     vel_cmd_pub_->publish(send_msg_vel);
 
     std_msgs::msg::Float64 zoom_msg;
-    zoom_msg.data = current_zoom_ + msg->zoom * dt;
+    current_zoom_ = current_zoom_ + msg->zoom * dt;
+    zoom_msg.data = current_zoom_;
     ptz_zoom_cmd_pub_->publish(zoom_msg);
 
     RCLCPP_INFO(this->get_logger(), "sent VEL msg: %f %f %f", send_msg_vel.data[0], send_msg_vel.data[1], zoom_msg.data);
