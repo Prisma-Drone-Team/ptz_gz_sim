@@ -6,7 +6,6 @@
 #include <ptz_action_server_msgs/action/ptz_move.hpp>
 #include <ptz_action_server_msgs/msg/ptz.hpp>
 #include <ptz_action_server_msgs/msg/ptz_state.hpp>
-#include <controller_manager_msgs/srv/switch_controller.hpp>
 #include <thread>
 #include <cmath>
 #include <chrono>
@@ -27,21 +26,23 @@ private:
     // ROS2 objects
     rclcpp::Publisher<ptz_action_server_msgs::msg::PtzState>::SharedPtr ptz_state_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ptz_zoom_cmd_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vel_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pos_cmd_pub_;
     rclcpp::Subscription<ptz_action_server_msgs::msg::Ptz>::SharedPtr cmd_velocity_sub_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
     rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ptz_zoom_fb_sub_;
     rclcpp_action::Server<ptz_action_server_msgs::action::PtzMove>::SharedPtr action_server_;
-    rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr switch_controller_srv_;
     
-    // Timer for velocity publishing
-    rclcpp::TimerBase::SharedPtr velocity_timer_;
+    // Timer for velocity integration and position publishing
+    rclcpp::TimerBase::SharedPtr control_timer_;
     
-    // Current velocity commands 
+    // Current velocity commands and target positions
     float current_vel_pan_ = 0.0f;
     float current_vel_tilt_ = 0.0f;
     float current_vel_zoom_ = 0.0f;
+    
+    // Target positions (for fake velocity control)
+    float target_pan_ = 0.0f;
+    float target_tilt_ = 0.0f;
     
     // Parameters
     const float dt = 1/20.0; 
@@ -70,8 +71,7 @@ private:
     // utility functions
     float clamp(float value, float min_val, float max_val);
     void execute_move(const std::shared_ptr<rclcpp_action::ServerGoalHandle<ptz_action_server_msgs::action::PtzMove>> goal_handle);
-    bool switch_to_controller(const std::string& target_controller);
-    void velocity_timer_callback();
+    void control_timer_callback();
 };
 
 // --- FakeAxisCamera method definitions ---
@@ -83,14 +83,12 @@ FakeAxisCamera::FakeAxisCamera() : Node("fake_axis_camera")
     current_tilt_ = 0.0f;
     current_zoom_ = 1.0f;
     mode_ = ptz_action_server_msgs::msg::PtzState::MODE_IDLE;
-    current_active_controller_ = "position_controller"; // Default to position controller
+    current_active_controller_ = "position_controller"; // Always use position controller
     
     // Create publishers
     const rclcpp::QoS qos_reliable = rclcpp::QoS(10).reliable();
     ptz_state_pub_ = this->create_publisher<ptz_action_server_msgs::msg::PtzState>("/ptz_state", qos_reliable);
     ptz_zoom_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64>("/ptz_zoom_cmd", qos_reliable);
-    vel_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/velocity_controller/commands", qos_reliable);
-    vel_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/velocity_controller/commands", qos_reliable);
     pos_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/position_controller/commands", qos_reliable);
     
     // Create subscribers
@@ -106,45 +104,42 @@ FakeAxisCamera::FakeAxisCamera() : Node("fake_axis_camera")
         std::bind(&FakeAxisCamera::handle_cancel, this, std::placeholders::_1),
         std::bind(&FakeAxisCamera::handle_accepted, this, std::placeholders::_1));
 
-    // create client for switch controller service
-    switch_controller_srv_ = this->create_client<controller_manager_msgs::srv::SwitchController>("/controller_manager/switch_controller");
-    
-    // Create timer for velocity publishing (50Hz) 
-    velocity_timer_ = this->create_wall_timer(
+    // Create timer for control loop (50Hz) 
+    control_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(20),
-        std::bind(&FakeAxisCamera::velocity_timer_callback, this));
+        std::bind(&FakeAxisCamera::control_timer_callback, this));
     
-    // Initialize velocity commands
+    // Initialize state
     current_vel_pan_ = 0.0f;
     current_vel_tilt_ = 0.0f;
     current_vel_zoom_ = 0.0f;
+    target_pan_ = 0.0f;
+    target_tilt_ = 0.0f;
             
     RCLCPP_INFO(this->get_logger(), "FakeAxisCamera node started");
 }
 
-// Callback for /cmd/velocity topic - real velocity control!
+// Callback for /cmd/velocity topic - fake velocity control!
 void FakeAxisCamera::cmd_velocity_cb(const ptz_action_server_msgs::msg::Ptz::ConstSharedPtr msg)
 {
     RCLCPP_INFO(this->get_logger(), "Received velocity command: pan=%f, tilt=%f, zoom=%f", msg->pan, msg->tilt, msg->zoom);
     
-    // Store velocity commands
+    // Initialize target positions with current positions when starting velocity mode
+    if (mode_ != ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY) {
+        target_pan_ = current_pan_;
+        target_tilt_ = current_tilt_;
+    }
+    
+    // Set mode to VELOCITY
+    mode_ = ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY;
+
+    // Store velocity commands - timer will integrate them to positions
     current_vel_pan_ = msg->pan;
     current_vel_tilt_ = msg->tilt;
     current_vel_zoom_ = msg->zoom;
 
-    // Set mode to VELOCITY
-    mode_ = ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY;
-    
-    // HYBRID STRATEGY: Keep position_controller active for real movement
-    // velocity_controller is only used for joint_states feedback
-    if (current_active_controller_ != "position_controller") {
-        RCLCPP_INFO(this->get_logger(), "Switching to position_controller for velocity integration...");
-        switch_to_controller("position_controller");
-    } else {
-        RCLCPP_INFO(this->get_logger(), "Using position_controller for velocity integration");
-    }
-    
-    RCLCPP_INFO(this->get_logger(), "Velocity mode activated: pan_vel=%f, tilt_vel=%f", current_vel_pan_, current_vel_tilt_);
+    RCLCPP_INFO(this->get_logger(), "Fake velocity mode: pan_vel=%f, tilt_vel=%f, target_pan=%f, target_tilt=%f", 
+               current_vel_pan_, current_vel_tilt_, target_pan_, target_tilt_);
 }
 
 // Publish current PTZ state
@@ -210,33 +205,27 @@ void FakeAxisCamera::handle_accepted(
     RCLCPP_INFO(this->get_logger(), "Received position command: pan=%f, tilt=%f", 
                 goal_handle->get_goal()->ptz.pan, goal_handle->get_goal()->ptz.tilt);
     
-    // Switch to position controller if needed
-    if (!switch_to_controller("position_controller")) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to switch to position controller");
-        auto res_msg = std::make_shared<ptz_action_server_msgs::action::PtzMove_Result>();
-        res_msg->success = false;
-        res_msg->message = "Failed to switch to position controller";
-        goal_handle->abort(res_msg);
-        return;
-    }
-
     // Set mode to POSITION and stop velocity
     mode_ = ptz_action_server_msgs::msg::PtzState::MODE_POSITION;
     current_vel_pan_ = 0.0f;
     current_vel_tilt_ = 0.0f;
     current_vel_zoom_ = 0.0f;
     
-    // Send position commands
+    // Update target positions
+    target_pan_ = goal_handle->get_goal()->ptz.pan;
+    target_tilt_ = goal_handle->get_goal()->ptz.tilt;
+    
+    // Send position commands (always use position controller)
     std_msgs::msg::Float64MultiArray send_msg_pos;
-    send_msg_pos.data.push_back(goal_handle->get_goal()->ptz.pan);
-    send_msg_pos.data.push_back(goal_handle->get_goal()->ptz.tilt);
+    send_msg_pos.data.push_back(target_pan_);
+    send_msg_pos.data.push_back(target_tilt_);
     pos_cmd_pub_->publish(send_msg_pos);
 
     std_msgs::msg::Float64 zoom_msg;
     zoom_msg.data = goal_handle->get_goal()->ptz.zoom;
     ptz_zoom_cmd_pub_->publish(zoom_msg);
 
-    RCLCPP_INFO(this->get_logger(), "Sent POS command: pan=%f, tilt=%f", send_msg_pos.data[0], send_msg_pos.data[1]);
+    RCLCPP_INFO(this->get_logger(), "Sent POS command: pan=%f, tilt=%f", target_pan_, target_tilt_);
 
     auto res_msg = std::make_shared<ptz_action_server_msgs::action::PtzMove_Result>();
     res_msg->success = true;
@@ -250,86 +239,35 @@ float FakeAxisCamera::clamp(float value, float min_val, float max_val)
     return std::max(min_val, std::min(max_val, value));
 }
 
-// Ultra-simplified controller switch - pure fire and forget!
-bool FakeAxisCamera::switch_to_controller(const std::string& target_controller)
+// Control timer callback - integrates velocity to position (fake velocity control)
+void FakeAxisCamera::control_timer_callback()
 {
-    if (current_active_controller_ == target_controller) {
-        RCLCPP_DEBUG(this->get_logger(), "Controller %s already active", target_controller.c_str());
-        return true;
-    }
+    // If in velocity mode, integrate velocities to get new target positions
+    if (mode_ == ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY) {
+        // Update target positions by integrating velocities
+        target_pan_ += current_vel_pan_ * dt;
+        target_tilt_ += current_vel_tilt_ * dt;
+        
+        // Clamp to joint limits
+        target_pan_ = clamp(target_pan_, PAN_MIN_, PAN_MAX_);
+        target_tilt_ = clamp(target_tilt_, TILT_MIN_, TILT_MAX_);
+        
+        // Send as position commands to position controller
+        std_msgs::msg::Float64MultiArray send_msg_pos;
+        send_msg_pos.data.push_back(target_pan_);
+        send_msg_pos.data.push_back(target_tilt_);
+        pos_cmd_pub_->publish(send_msg_pos);
 
-    RCLCPP_INFO(this->get_logger(), "Switching from %s to %s...", 
-               current_active_controller_.c_str(), target_controller.c_str());
-    
-    // Prepare switch request
-    auto switch_req = std::make_shared<controller_manager_msgs::srv::SwitchController::Request>();
-    switch_req->activate_asap = true;
-    switch_req->strictness = controller_manager_msgs::srv::SwitchController_Request::BEST_EFFORT;
-    
-    // Always deactivate the other controller
-    std::string other_controller = (target_controller == "position_controller") ? "velocity_controller" : "position_controller";
-    
-    switch_req->activate_controllers.push_back(target_controller);
-    switch_req->deactivate_controllers.push_back(other_controller);
-    
-    // Fire and forget approach - no waiting at all!
-    if (switch_controller_srv_->service_is_ready()) {
-        switch_controller_srv_->async_send_request(switch_req);
-        current_active_controller_ = target_controller;
-        RCLCPP_INFO(this->get_logger(), "Requested switch to %s (pure fire and forget)", target_controller.c_str());
-        return true;
-    } else {
-        RCLCPP_ERROR(this->get_logger(), "Controller switch service not ready");
-        return false;
+        // Update zoom continuously if non-zero velocity
+        if (std::abs(current_vel_zoom_) > 0.001f) {
+            current_zoom_ += current_vel_zoom_ * dt;
+            current_zoom_ = clamp(current_zoom_, ZOOM_MIN_, ZOOM_MAX_);
+            std_msgs::msg::Float64 zoom_msg;
+            zoom_msg.data = current_zoom_;
+            ptz_zoom_cmd_pub_->publish(zoom_msg);
+        }
     }
-}
-
-// Velocity timer callback - hybrid approach: integrate velocity to position
-void FakeAxisCamera::velocity_timer_callback()
-{
-    // Only operate in velocity mode
-    if (mode_ != ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY) {
-        return;
-    }
-    
-    // Make sure position_controller is active (we use it for real movement even in velocity mode)
-    if (current_active_controller_ != "position_controller") {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, 
-                             "Velocity mode but controller is: %s (expected position_controller)", 
-                             current_active_controller_.c_str());
-        return;
-    }
-    
-    // HYBRID APPROACH: Use position_controller for real movement, integrate velocities manually
-    
-    // 1. Integrate velocities into current positions  
-    current_pan_ += current_vel_pan_ * dt;
-    current_tilt_ += current_vel_tilt_ * dt;
-    
-    // Clamp positions to limits
-    current_pan_ = clamp(current_pan_, PAN_MIN_, PAN_MAX_);
-    current_tilt_ = clamp(current_tilt_, TILT_MIN_, TILT_MAX_);
-    
-    // 2. Send integrated positions to position_controller for actual movement
-    std_msgs::msg::Float64MultiArray position_msg;
-    position_msg.data.push_back(current_pan_);
-    position_msg.data.push_back(current_tilt_);
-    pos_cmd_pub_->publish(position_msg);
-    
-    static int debug_count = 0;
-    if (++debug_count % 50 == 0) {  // Log every 1 seconds
-        RCLCPP_INFO(this->get_logger(), "Velocity mode: integrating vel=[%.3f,%.3f] -> pos=[%.3f,%.3f]", 
-                   current_vel_pan_, current_vel_tilt_, current_pan_, current_tilt_);
-    }
-
-    // Update zoom continuously if non-zero velocity
-    if (std::abs(current_vel_zoom_) > 0.001f) {
-        current_zoom_ += current_vel_zoom_ * dt;
-        current_zoom_ = clamp(current_zoom_, ZOOM_MIN_, ZOOM_MAX_);
-        std_msgs::msg::Float64 zoom_msg;
-        zoom_msg.data = current_zoom_;
-        ptz_zoom_cmd_pub_->publish(zoom_msg);
-    }
+    // Note: In position mode, commands are sent directly in handle_accepted, no need for timer
 }
 
 void FakeAxisCamera::execute_move(

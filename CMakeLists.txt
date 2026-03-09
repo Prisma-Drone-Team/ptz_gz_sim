@@ -57,9 +57,14 @@ target_include_directories(CameraZoomPlugin PRIVATE
     gz-sim7::gz-sim7
   )
 
-# Build fake_axis_camera node
+# Build fake_axis_camera node (real controller switching)
 add_executable(fake_axis_camera_node
   src/fake_axis_camera.cpp
+)
+
+# Build fake_axis_camera integration node (fake velocity via position)
+add_executable(fake_axis_camera_int_node
+  src/fake_axis_camera_int.cpp
 )
 
 ament_target_dependencies(fake_axis_camera_node
@@ -71,8 +76,17 @@ ament_target_dependencies(fake_axis_camera_node
   controller_manager_msgs
 )
 
+ament_target_dependencies(fake_axis_camera_int_node
+  rclcpp
+  rclcpp_action
+  ptz_action_server_msgs
+  std_msgs
+  sensor_msgs
+)
+
 install(TARGETS
   fake_axis_camera_node
+  fake_axis_camera_int_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
