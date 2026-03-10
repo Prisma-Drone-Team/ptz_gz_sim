@@ -93,6 +93,16 @@
             <mass value="1.0"/>
             <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0"/>
         </inertial>
+        <!-- ADDED: Visual for pan_link to see PTZ movement -->
+        <visual>
+            <origin xyz="0 0 0.02" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.1 0.1 0.04"/>
+            </geometry>
+            <material name="Red">
+                <color rgba="1.0 0 0 0.8"/>
+            </material>
+        </visual>
     </link>
 
     <joint name="tilt_joint" type="revolute">
@@ -109,6 +119,16 @@
             <mass value="1.0"/>
             <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0"/>
         </inertial>
+        <!-- ADDED: Visual for tilt_link to see PTZ tilt movement -->  
+        <visual>
+            <origin xyz="0 0 0.03" rpy="0 0 0"/>
+            <geometry>
+                <cylinder radius="0.04" length="0.06"/>
+            </geometry>
+            <material name="Green">
+                <color rgba="0 1.0 0 0.8"/>
+            </material>
+        </visual>
     </link>
 
     <gazebo reference="pan_joint">
@@ -129,6 +149,16 @@
             <mass value="1.0"/>
             <inertia ixx="1.0" ixy="0.0" ixz="0.0" iyy="1.0" iyz="0.0" izz="1.0"/>
         </inertial>
+        <!-- ADDED: Visual for camera optical frame -->
+        <visual>
+            <origin xyz="0 0 0.01" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.06 0.04 0.02"/>
+            </geometry>
+            <material name="Yellow">
+                <color rgba="1.0 1.0 0 0.9"/>
+            </material>
+        </visual>
     </link>
 
     <joint name="axis_camera_optical_joint" type="fixed">
@@ -137,10 +167,7 @@
         <origin xyz="0.0 0.0 0.0" rpy="3.1415 0.0 0.0"/>
     </joint>
 
-    <!-- Import ros2_control configuration -->
-    <xacro:include filename="ptz.ros2_control.xacro" />
-    <xacro:ptz_ros2_control name="MockSystem" />
-
+    <!-- Camera sensor on axis_camera_optical (original configuration) -->
     <gazebo reference="axis_camera_optical">
     <sensor name="ptz_camera" type="camera">
       <pose>0 0 0 0 0 0</pose>
@@ -158,22 +185,50 @@
           <near>0.1</near>
           <far>100</far>
         </clip>
-
       </camera>
       <always_on>1</always_on>
-      <update_rate>30</update_rate>
+      <update_rate>25</update_rate>
+      <visualize>true</visualize>
       
-      <!-- CameraZoomPlugin Configuration - COMMENTED OUT FOR NOW -->
-      <!-- 
-      <plugin name="CameraZoomPlugin" filename="CameraZoomPlugin">
-        <max_zoom>125.0</max_zoom>
-        <slew_rate>0.425</slew_rate>
-        <topic>ptz_zoom_cmd</topic>
-        <fb_topic>ptz_zoom_fb</fb_topic>
+      <!-- Zoom control plugin - with retry mechanism for timing -->
+      <plugin filename="CameraZoomPlugin"
+            name="CameraZoomPlugin">
+
+        <max_zoom>125</max_zoom>
+        <slew_rate>5.0</slew_rate>
+
+        <topic>/ptz_zoom_cmd</topic>
+        <fb_topic>/ptz_zoom_fb</fb_topic>
+
       </plugin>
-      -->
-      
     </sensor>
+  </gazebo>
+
+  <!-- PTZ Joint Controllers for Gazebo Garden -->
+  <gazebo>
+    <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        
+        <joint_name>pan_joint</joint_name>
+        <topic>/pan_cmd</topic>
+        <p_gain>10</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>0.01</d_gain>
+    </plugin>
+  </gazebo>
+
+  <gazebo>
+    <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        
+        <joint_name>tilt_joint</joint_name>
+        <topic>/tilt_cmd</topic>
+        <p_gain>10</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>0.01</d_gain>
+    </plugin>
   </gazebo>
 
 </robot>

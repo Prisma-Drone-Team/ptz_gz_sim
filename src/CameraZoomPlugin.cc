@@ -116,6 +116,12 @@ class CameraZoomPlugin::Impl
   // public: Sensor cameraSensor{kNullEntity};
   public: Entity cameraSensorEntity{kNullEntity};
 
+  /// \brief Retry counter for sensor discovery
+  public: int sensorRetryCount{0};
+
+  /// \brief Maximum retries for sensor discovery
+  public: static constexpr int maxSensorRetries{50};
+
   /// \brief Name of the camera.
   public: std::string cameraName;
 
@@ -219,24 +225,91 @@ void CameraZoomPlugin::Impl::InitialiseCamera()
   }
 
   // Return if scene not ready or no sensors available.
-  if (this->scene == nullptr ||
-      !this->scene->IsInitialized() ||
-      this->scene->SensorCount() == 0)
+  if (this->scene == nullptr || !this->scene->IsInitialized())
   {
-    gzwarn << "No scene or camera sensors available.\n";
+    gzwarn << "Scene not ready.\n";
     return;
+  }
+  
+  // If no sensors available, wait a bit before trying again
+  if (this->scene->SensorCount() == 0)
+  {
+    this->sensorRetryCount++;
+    if (this->sensorRetryCount < this->maxSensorRetries)
+    {
+      if (this->sensorRetryCount % 10 == 1) // Log every 10 retries
+      {
+        gzwarn << "No sensors available yet, retrying... (" 
+               << this->sensorRetryCount << "/" << this->maxSensorRetries << ")\n";
+      }
+      return;
+    }
+    else
+    {
+      gzerr << "Timeout: No sensors available after " << this->maxSensorRetries << " retries.\n";
+      return;
+    }
   }
 
   // Get camera.
   if (!this->camera)
   {
+    // Debug: List all available sensors (only first time and periodically)
+    if (this->sensorRetryCount == 0 || this->sensorRetryCount % 20 == 0)
+    {
+      gzwarn << "Available sensors in scene (" << this->scene->SensorCount() << "):\n";
+      for (unsigned int i = 0; i < this->scene->SensorCount(); ++i)
+      {
+        auto sensor = this->scene->SensorByIndex(i);
+        if (sensor)
+        {
+          gzwarn << "  - Sensor " << i << ": " << sensor->Name() << std::endl;
+        }
+      }
+    }
+    
     auto sensor = this->scene->SensorByName(this->cameraName);
     if (!sensor)
     {
-      gzerr << "Unable to find sensor: [" << this->cameraName << "]."
-            << std::endl;
-      return;
+      // Try to find a camera sensor by searching for one containing "camera" in the name
+      for (unsigned int i = 0; i < this->scene->SensorCount(); ++i)
+      {
+        auto candidateSensor = this->scene->SensorByIndex(i);
+        if (candidateSensor && candidateSensor->Name().find("camera") != std::string::npos)
+        {
+          auto candidateCamera = std::dynamic_pointer_cast<rendering::Camera>(candidateSensor);
+          if (candidateCamera)
+          {
+            sensor = candidateSensor;
+            this->cameraName = candidateSensor->Name();
+            gzwarn << "Found camera sensor: " << this->cameraName << std::endl;
+            break;
+          }
+        }
+      }
     }
+    
+    if (!sensor)
+    {
+      this->sensorRetryCount++;
+      if (this->sensorRetryCount < this->maxSensorRetries)
+      {
+        if (this->sensorRetryCount % 10 == 1)
+        {
+          gzwarn << "Camera sensor '" << this->cameraName 
+                 << "' not found, retrying... (" << this->sensorRetryCount << "/" 
+                 << this->maxSensorRetries << ")\n";
+        }
+        return;
+      }
+      else
+      {
+        gzerr << "Timeout: Unable to find camera sensor '" << this->cameraName 
+              << "' after " << this->maxSensorRetries << " retries." << std::endl;
+        return;
+      }
+    }
+    
     this->camera = std::dynamic_pointer_cast<rendering::Camera>(sensor);
     if (!this->camera)
     {
@@ -244,6 +317,8 @@ void CameraZoomPlugin::Impl::InitialiseCamera()
             << std::endl;
       return;
     }
+    
+    gzmsg << "CameraZoomPlugin successfully connected to camera: " << this->cameraName << std::endl;
   }
 }
 
@@ -357,6 +432,11 @@ void CameraZoomPlugin::Configure(
   }
 
   // Parameters
+  if (_sdf->HasElement("camera_name"))
+  {
+    this->impl->cameraName = _sdf->Get<std::string>("camera_name");
+    gzdbg << "Using explicit camera name: [" << this->impl->cameraName << "].\n";
+  }
   if (_sdf->HasElement("max_zoom"))
   {
     this->impl->maxZoom = _sdf->Get<double>("max_zoom");
@@ -508,6 +588,8 @@ void CameraZoomPlugin::PreUpdate(
 
   const auto newHfov = CameraZoomPlugin::Impl::FocalLengthToFov(
       sensorWidth, newFocalLength);
+
+  this->impl->curZoom = this->impl->refHfov / newHfov;
   // Update rendering camera with the latest focal length.
   cameraSdf->SetHorizontalFov(newHfov);
   _ecm.SetChanged(cameraEntity, components::Camera::typeId,
@@ -528,16 +610,16 @@ void CameraZoomPlugin::PostUpdate(
   this->impl->zoomFbPub.Publish(msg);
 
   
-  if (!this->impl->cameraName.empty())
-    return;
+  if (this->impl->cameraName.empty())
+  {
+    /// \todo(srmainwaring) replace with `gz::sim::Sensor` when available.
+    // Entity cameraEntity = this->impl->cameraSensor.Entity();
+    Entity cameraEntity = this->impl->cameraSensorEntity;
+    this->impl->cameraName =
+        removeParentScope(scopedName(cameraEntity, _ecm, "::", false), "::");
 
-  /// \todo(srmainwaring) replace with `gz::sim::Sensor` when available.
-  // Entity cameraEntity = this->impl->cameraSensor.Entity();
-  Entity cameraEntity = this->impl->cameraSensorEntity;
-  this->impl->cameraName =
-      removeParentScope(scopedName(cameraEntity, _ecm, "::", false), "::");
-
-  gzdbg << "Camera name: [" << this->impl->cameraName << "].\n";
+    gzdbg << "Auto-detected camera name: [" << this->impl->cameraName << "].\n";
+  }
 }
 
 //////////////////////////////////////////////////

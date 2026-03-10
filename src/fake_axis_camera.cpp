@@ -26,14 +26,19 @@ private:
     
     // ROS2 objects
     rclcpp::Publisher<ptz_action_server_msgs::msg::PtzState>::SharedPtr ptz_state_pub_;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ptz_zoom_cmd_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ptz_zoom_cmd_pub_;   // NEW: Real zoom command publisher
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr ptz_zoom_fb_pub_;    // Zoom feedback publisher  
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr vel_cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pos_cmd_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub_;  // NEW: Publish for RViz
     rclcpp::Subscription<ptz_action_server_msgs::msg::Ptz>::SharedPtr cmd_velocity_sub_;
-    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ptz_zoom_fb_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr ptz_zoom_cmd_sub_;  // Zoom command subscriber
     rclcpp_action::Server<ptz_action_server_msgs::action::PtzMove>::SharedPtr action_server_;
     rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr switch_controller_srv_;
+    
+    // Gazebo publishers for direct joint control via topics
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pan_joint_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr tilt_joint_pub_;
     
     // Timer for velocity publishing
     rclcpp::TimerBase::SharedPtr velocity_timer_;
@@ -53,14 +58,13 @@ private:
     const float TILT_MIN_ = -90.0f;
     const float TILT_MAX_ = 90.0f;
     const float ZOOM_MIN_ = 1.0f;
-    const float ZOOM_MAX_ = 1.0f;  // Can adjust based on camera specs
+    const float ZOOM_MAX_ = 125.0f; // Full zoom range for axis camera (restored original value)
     
     // Method declarations
     
     // callbacks
     void cmd_velocity_cb(const ptz_action_server_msgs::msg::Ptz::ConstSharedPtr msg);
-    void joint_state_cb(const sensor_msgs::msg::JointState::ConstSharedPtr msg);
-    void ptz_zoom_fb_cb(const std_msgs::msg::Float64::ConstSharedPtr msg);
+    void ptz_zoom_cmd_cb(const std_msgs::msg::Float64::ConstSharedPtr msg);  // NEW: Direct zoom command callback
     
     // server callbacks
     rclcpp_action::GoalResponse handle_goal(const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const ptz_action_server_msgs::action::PtzMove::Goal> goal);
@@ -72,6 +76,8 @@ private:
     void execute_move(const std::shared_ptr<rclcpp_action::ServerGoalHandle<ptz_action_server_msgs::action::PtzMove>> goal_handle);
     bool switch_to_controller(const std::string& target_controller);
     void velocity_timer_callback();
+    void force_gazebo_joint_positions(float pan_rad, float tilt_rad);
+    void publish_joint_states();  // NEW: Publish joint states for RViz
 };
 
 // --- FakeAxisCamera method definitions ---
@@ -88,14 +94,14 @@ FakeAxisCamera::FakeAxisCamera() : Node("fake_axis_camera")
     // Create publishers
     const rclcpp::QoS qos_reliable = rclcpp::QoS(10).reliable();
     ptz_state_pub_ = this->create_publisher<ptz_action_server_msgs::msg::PtzState>("/ptz_state", qos_reliable);
-    ptz_zoom_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64>("/ptz_zoom_cmd", qos_reliable);
-    vel_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/velocity_controller/commands", qos_reliable);
+    ptz_zoom_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64>("/ptz_zoom_cmd", qos_reliable);   // NEW: Real zoom command
+    ptz_zoom_fb_pub_ = this->create_publisher<std_msgs::msg::Float64>("/ptz_zoom_fb", qos_reliable);  // NEW: Zoom feedback
     vel_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/velocity_controller/commands", qos_reliable);
     pos_cmd_pub_ = this->create_publisher<std_msgs::msg::Float64MultiArray>("/position_controller/commands", qos_reliable);
+    joint_state_pub_ = this->create_publisher<sensor_msgs::msg::JointState>("/joint_states", qos_reliable);  // NEW: For RViz
     
     // Create subscribers
-    joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>("/joint_states", qos_reliable, std::bind(&FakeAxisCamera::joint_state_cb, this, std::placeholders::_1));
-    ptz_zoom_fb_sub_ = this->create_subscription<std_msgs::msg::Float64>("/ptz_zoom_fb", qos_reliable, std::bind(&FakeAxisCamera::ptz_zoom_fb_cb, this, std::placeholders::_1));
+    ptz_zoom_cmd_sub_ = this->create_subscription<std_msgs::msg::Float64>("/ptz_zoom_cmd", qos_reliable, std::bind(&FakeAxisCamera::ptz_zoom_cmd_cb, this, std::placeholders::_1));  // NEW: Zoom commands
     cmd_velocity_sub_ = this->create_subscription<ptz_action_server_msgs::msg::Ptz>("/cmd/velocity", qos_reliable, std::bind(&FakeAxisCamera::cmd_velocity_cb, this, std::placeholders::_1));
     
     // Create action server for move_ptz/position_abs
@@ -109,6 +115,10 @@ FakeAxisCamera::FakeAxisCamera() : Node("fake_axis_camera")
     // create client for switch controller service
     switch_controller_srv_ = this->create_client<controller_manager_msgs::srv::SwitchController>("/controller_manager/switch_controller");
     
+    // Create Gazebo joint position publishers (working config from minimal_sim)
+    pan_joint_pub_ = this->create_publisher<std_msgs::msg::Float64>("/pan_cmd", qos_reliable);
+    tilt_joint_pub_ = this->create_publisher<std_msgs::msg::Float64>("/tilt_cmd", qos_reliable);
+    
     // Create timer for velocity publishing (50Hz) 
     velocity_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(20),
@@ -118,8 +128,8 @@ FakeAxisCamera::FakeAxisCamera() : Node("fake_axis_camera")
     current_vel_pan_ = 0.0f;
     current_vel_tilt_ = 0.0f;
     current_vel_zoom_ = 0.0f;
-            
-    RCLCPP_INFO(this->get_logger(), "FakeAxisCamera node started");
+    
+    RCLCPP_INFO(this->get_logger(), "FakeAxisCamera node started with working Gazebo Garden plugin config");
 }
 
 // Callback for /cmd/velocity topic - real velocity control!
@@ -148,41 +158,57 @@ void FakeAxisCamera::cmd_velocity_cb(const ptz_action_server_msgs::msg::Ptz::Con
 }
 
 // Publish current PTZ state
-void FakeAxisCamera::joint_state_cb(const sensor_msgs::msg::JointState::ConstSharedPtr msg)
+// Joint state callback replaced with publish function (no more ROS2 Control dependency)
+void FakeAxisCamera::publish_joint_states()
 {
-    if (msg->position.size() >= 2) {
-        auto curr_pan = msg->position[0];
-        auto curr_tilt = msg->position[1];
-        auto curr_zoom = current_zoom_;
-        
-        // Update internal state
-        current_pan_ = curr_pan;
-        current_tilt_ = curr_tilt;
-        
-        auto send_msg = ptz_action_server_msgs::msg::PtzState();
-        send_msg.mode = mode_;
-        send_msg.pan = curr_pan;
-        send_msg.tilt = curr_tilt;
-        send_msg.zoom = curr_zoom;
-        ptz_state_pub_->publish(send_msg);
-        
-        // Debug output for velocity mode
-        static int counter = 0;
-        counter++;
-        if (mode_ == ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY && counter % 20 == 0) {
-            RCLCPP_INFO(this->get_logger(), 
-                "PTZ State: mode=VELOCITY, pan=%f, tilt=%f, zoom=%f", 
-                curr_pan, curr_tilt, curr_zoom);
-        }
-    } else {
-        RCLCPP_WARN(this->get_logger(), "Received joint_state with insufficient position data");
+    // Publish joint states for RViz visualization
+    auto joint_msg = sensor_msgs::msg::JointState();
+    joint_msg.header.stamp = this->now();
+    joint_msg.name = {"pan_joint", "tilt_joint"};
+    joint_msg.position = {current_pan_, current_tilt_};
+    joint_msg.velocity = {current_vel_pan_, current_vel_tilt_};
+    joint_state_pub_->publish(joint_msg);
+    
+    // Publish PTZ state
+    auto ptz_msg = ptz_action_server_msgs::msg::PtzState();
+    ptz_msg.mode = mode_;
+    ptz_msg.pan = current_pan_;
+    ptz_msg.tilt = current_tilt_;
+    ptz_msg.zoom = current_zoom_;
+    ptz_state_pub_->publish(ptz_msg);
+    
+    // Publish zoom feedback (pezzotto zoom implementation)
+    auto zoom_fb_msg = std_msgs::msg::Float64();
+    zoom_fb_msg.data = current_zoom_;
+    ptz_zoom_fb_pub_->publish(zoom_fb_msg);
+    
+    // Force joint positions in Gazebo
+    force_gazebo_joint_positions(current_pan_, current_tilt_);
+    
+    // Debug output for velocity mode
+    static int counter = 0;
+    counter++;
+    if (mode_ == ptz_action_server_msgs::msg::PtzState::MODE_VELOCITY && counter % 20 == 0) {
+        RCLCPP_INFO(this->get_logger(), 
+            "PTZ State: mode=VELOCITY, pan=%f, tilt=%f, zoom=%f", 
+            current_pan_, current_tilt_, current_zoom_);
     }
 }
 
-void FakeAxisCamera::ptz_zoom_fb_cb(const std_msgs::msg::Float64::ConstSharedPtr msg)
+// NEW: Direct zoom command callback (PEZZOTTO implementation)
+void FakeAxisCamera::ptz_zoom_cmd_cb(const std_msgs::msg::Float64::ConstSharedPtr msg)
 {
-    current_zoom_ = msg->data;
+    float target_zoom = clamp(msg->data, ZOOM_MIN_, ZOOM_MAX_);
+    current_zoom_ = target_zoom;
+    
+    RCLCPP_INFO(this->get_logger(), 
+        "🎯 PEZZOTTO ZOOM: Received direct zoom command %.2f -> set to %.2f", 
+        msg->data, current_zoom_);
+    
+    // Zoom feedback is published automatically in joint_state_cb via ptz_zoom_fb_pub_
 }
+
+// Removed: ptz_zoom_fb_cb (not needed in pezzotto implementation)
 
 // Action server callbacks
 rclcpp_action::GoalResponse FakeAxisCamera::handle_goal(
@@ -232,9 +258,13 @@ void FakeAxisCamera::handle_accepted(
     send_msg_pos.data.push_back(goal_handle->get_goal()->ptz.tilt);
     pos_cmd_pub_->publish(send_msg_pos);
 
+    // Send zoom command to real CameraZoomPlugin
+    current_zoom_ = clamp(goal_handle->get_goal()->ptz.zoom, ZOOM_MIN_, ZOOM_MAX_);
     std_msgs::msg::Float64 zoom_msg;
-    zoom_msg.data = goal_handle->get_goal()->ptz.zoom;
+    zoom_msg.data = current_zoom_;
     ptz_zoom_cmd_pub_->publish(zoom_msg);
+    
+    RCLCPP_INFO(this->get_logger(), "🔍 REAL ZOOM: Action server sent zoom=%.2f to CameraZoomPlugin", current_zoom_);
 
     RCLCPP_INFO(this->get_logger(), "Sent POS command: pan=%f, tilt=%f", send_msg_pos.data[0], send_msg_pos.data[1]);
 
@@ -322,14 +352,22 @@ void FakeAxisCamera::velocity_timer_callback()
                    current_vel_pan_, current_vel_tilt_, current_pan_, current_tilt_);
     }
 
-    // Update zoom continuously if non-zero velocity
+    // Real zoom control via CameraZoomPlugin - integrate velocity to zoom factor
     if (std::abs(current_vel_zoom_) > 0.001f) {
         current_zoom_ += current_vel_zoom_ * dt;
         current_zoom_ = clamp(current_zoom_, ZOOM_MIN_, ZOOM_MAX_);
+        
+        // Send zoom command to real CameraZoomPlugin
         std_msgs::msg::Float64 zoom_msg;
         zoom_msg.data = current_zoom_;
         ptz_zoom_cmd_pub_->publish(zoom_msg);
+        
+        RCLCPP_DEBUG(this->get_logger(), "🔍 REAL ZOOM: Velocity=%.3f -> zoom=%.3f", 
+                    current_vel_zoom_, current_zoom_);
     }
+    
+    // NEW: Publish joint states for both RViz and Gazebo
+    publish_joint_states();
 }
 
 void FakeAxisCamera::execute_move(
@@ -415,6 +453,15 @@ void FakeAxisCamera::execute_move(
         feedback->ptz_remaining.zoom = target_zoom - current_zoom_;
         goal_handle->publish_feedback(feedback);
         
+        // NEW: Publish position commands for both RViz and Gazebo
+        std_msgs::msg::Float64MultiArray position_msg;
+        position_msg.data.push_back(current_pan_);
+        position_msg.data.push_back(current_tilt_);
+        pos_cmd_pub_->publish(position_msg);
+        
+        // NEW: Publish joint states for RViz and PTZ state
+        publish_joint_states();
+        
         std::this_thread::sleep_for(std::chrono::milliseconds(SLEEP_MS));
     }
     
@@ -439,4 +486,27 @@ int main(int argc, char **argv)
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
+}
+
+// Function to force joint positions directly in Gazebo (bypass mock_components)
+void FakeAxisCamera::force_gazebo_joint_positions(float pan_rad, float tilt_rad)
+{
+    // Publish joint positions directly to Gazebo joint command topics
+    // This bypasses the ROS2 Control layer entirely
+    
+    auto pan_msg = std_msgs::msg::Float64();
+    auto tilt_msg = std_msgs::msg::Float64();
+    
+    pan_msg.data = pan_rad;
+    tilt_msg.data = tilt_rad;
+    
+    pan_joint_pub_->publish(pan_msg);
+    tilt_joint_pub_->publish(tilt_msg);
+    
+    static int debug_counter = 0;
+    debug_counter++;
+    if (debug_counter % 50 == 0) { // Debug every 1 second at 50Hz
+        RCLCPP_INFO(this->get_logger(), "🔥 COMMANDING Gazebo via /pan_cmd & /tilt_cmd: pan=%.3f, tilt=%.3f rad", 
+            pan_rad, tilt_rad);
+    }
 }

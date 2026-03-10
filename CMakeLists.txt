@@ -23,6 +23,12 @@ set(GZ_RENDERING_VER ${gz-rendering7_VERSION_MAJOR})
 gz_find_package(gz-sim7 REQUIRED)
 set(GZ_SIM_VER ${gz-sim7_VERSION_MAJOR})
 
+gz_find_package(gz-transport12 REQUIRED)
+set(GZ_TRANSPORT_VER ${gz-transport12_VERSION_MAJOR})
+
+gz_find_package(gz-msgs9 REQUIRED)
+set(GZ_MSGS_VER ${gz-msgs9_VERSION_MAJOR})
+
 # --------------------------------------------------------------------------- #
 
 # find dependencies
@@ -97,7 +103,7 @@ install(PROGRAMS
 
 install(TARGETS
   CameraZoomPlugin
-  DESTINATION share/${PROJECT_NAME}/plugins
+  LIBRARY DESTINATION lib
 )
 
 if(BUILD_TESTING)
